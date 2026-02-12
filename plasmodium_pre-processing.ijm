@@ -1,13 +1,12 @@
 //@File(label = "Input directory", style = "directory") inputDir
 //@File(label = "Output directory", style = "directory") outputDir
-//@String (label = "File suffix", value = ".czi") fileSuffix
+//@String (label = "File suffix", value = ".nd2") fileSuffix
 //@File(label = "Weka classifier", style = "file") classifier
-//@Integer(label = "Channel to process", style = "slider", min=1, max=7, stepSize= 1, value = 3) chan
 
 // plasmodium_pre-processing.ijm
 // ImageJ/Fiji script to batch process plasmodium images:
 //	  extract a single slice from a multichannel z-stack, 
-//    detect the RBC area using a Weka model previously trained, 
+//    detect the RBC area using a Weka model, 
 //    and perform binary processing on the classified image
 //    Output is a binary mask that can be used in a CellProfiler pipeline  
 // by Theresa Swayne for Kharizta Wiradiputri, David Fidock's lab, 2025
@@ -40,7 +39,7 @@ print("Starting");
 
 // Call the processFolder function, including the parameters collected at the beginning of the script
 
-processFolder(inputDir, outputDir, fileSuffix, classifier, chan);
+processFolder(inputDir, outputDir, fileSuffix, classifier);
 
 // Clean up images and get out of batch mode
 
@@ -54,7 +53,7 @@ print("Finished");
 
 // ---- Functions ----
 
-function processFolder(input, output, suffix, classifier, channel) {
+function processFolder(input, output, suffix, classifier) {
 
 	// this function searches for files matching the criteria and sends them to the processFile function
 	filenum = -1;
@@ -68,13 +67,13 @@ function processFolder(input, output, suffix, classifier, channel) {
 		}
 		if(endsWith(list[i], suffix)) {
 			filenum = filenum + 1;
-			processFile(input, output, list[i], filenum, classifier, channel); // passes the filename and parameters to the processFile function
+			processFile(input, output, list[i], filenum, classifier); // passes the filename and parameters to the processFile function
 		}
 	}
 } // end of processFolder function
 
 
-function processFile(inputFolder, outputFolder, fileName, fileNumber, classifier, chan) {
+function processFile(inputFolder, outputFolder, fileName, fileNumber, classifier) {
 	
 	// this function processes a single image
 	
@@ -91,48 +90,40 @@ function processFile(inputFolder, outputFolder, fileName, fileNumber, classifier
 	// open the file
 	run("Bio-Formats", "open=&path");
 
-	// select slice 8 in the transmitted channel
+	// select slice 8 in the phase channel
+	Stack.setPosition(3,8,1);
+	sliceName = basename+"-phase_z8.tif";
+	run("Duplicate...", "title="+sliceName);
+
+	selectImage(sliceName);
 	
-	getDimensions(width, height, channels, slices, frames);
-	if (chan > channels) {
-		print("That channel does not exist in this dataset!");
-		continue;
-	}
-	else {
-		
-		Stack.setPosition(chan,8,1); // c, z, t
-		sliceName = basename+"-phase_z8.tif";
-		run("Duplicate...", "title="+sliceName);
+	// run trainable weka pre-trained model
+
+	run("Trainable Weka Segmentation");
+
+	// wait for the plugin to load
+	wait(3000);
+	selectWindow("Trainable Weka Segmentation v4.0.0");
+	call("trainableSegmentation.Weka_Segmentation.loadClassifier", classifier);
+	call("trainableSegmentation.Weka_Segmentation.getResult");
+	wait(3000);
 	
-		selectImage(sliceName);
-		
-		// run trainable weka pre-trained model
+	selectWindow("Classified image");
+	setThreshold(1, 255, "raw");
+	setOption("BlackBackground", true);
+	run("Convert to Mask");
+	run("Fill Holes");
+	run("Options...", "iterations=1 count=1 black do=Open");
+	run("Watershed");
 	
-		run("Trainable Weka Segmentation");
+	// save the output
+	outputName = basename + "_classified.tif";
+	saveAs("tiff", outputFolder + File.separator + outputName);
+	close();
 	
-		// wait for the plugin to load
-		wait(3000);
-		selectWindow("Trainable Weka Segmentation v4.0.0");
-		call("trainableSegmentation.Weka_Segmentation.loadClassifier", classifier);
-		call("trainableSegmentation.Weka_Segmentation.getResult");
-		wait(3000);
+	selectWindow("Trainable Weka Segmentation v4.0.0");
+	close();
 		
-		selectWindow("Classified image");
-		setThreshold(1, 255, "raw");
-		setOption("BlackBackground", true);
-		run("Convert to Mask");
-		run("Fill Holes");
-		run("Options...", "iterations=1 count=1 black do=Open");
-		run("Watershed");
-		
-		// save the output
-		outputName = basename + "_classified.tif";
-		saveAs("tiff", outputFolder + File.separator + outputName);
-		close();
-		
-		selectWindow("Trainable Weka Segmentation v4.0.0");
-		close();
-	}
 } // end of processFile function
 
 
